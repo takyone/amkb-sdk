@@ -1,1 +1,0 @@
-"""Reference AMKB store implementations."""
