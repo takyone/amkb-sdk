@@ -187,6 +187,8 @@ class DictStore:
                     other_node = self._nodes[other]
                     if not include_retired and other_node.state == "retired":
                         continue
+                    if other_node.kind == KIND_SOURCE:
+                        continue
                     seen.add(other)
                     result.append(other)
                     next_frontier.append(other)
