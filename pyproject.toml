@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "amkb"
+version = "0.1.0"
+description = "Python SDK and reference implementation for the Agent-Managed Knowledge Base (AMKB) protocol"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.11"
+authors = [{ name = "takyone" }]
+keywords = ["amkb", "knowledge-base", "rag", "agent"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "msgspec>=0.18",
+]
+
+[project.optional-dependencies]
+reference = []
+test = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+dev = [
+    "amkb[test]",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[project.urls]
+Specification = "https://github.com/takyone/amkb-spec"
+Repository = "https://github.com/takyone/amkb-sdk"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/amkb"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["amkb"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
