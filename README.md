@@ -35,11 +35,22 @@ The package consists of:
 ## Relationship to Spikuit
 
 [Spikuit](https://github.com/takyone/spikuit) is a neural learning
-graph and will be the first real consumer of `amkb`. Spikuit features
+graph and is the first real consumer of `amkb`. Spikuit features
 such as FSRS scheduling, APPNP propagation, and pressure dynamics live
-on top of the AMKB protocol, not inside it. A future
-`spikuit.amkb_adapter` module will expose Spikuit's internal state as
-an `amkb.Store` without changing Spikuit's own vocabulary.
+on top of the AMKB protocol, not inside it.
+
+**Status (2026-04):** Spikuit **v0.7.0** ships the `spikuit-core`
+plumbing needed to back an adapter — soft-retire as the sole delete
+path, a `changeset` / `event` log, an `async with circuit.transaction()`
+wrapper, `neuron_predecessor` lineage, and a physical-purge escape
+hatch via `spkt history prune`. The hot read/write paths stayed
+byte-identical: 408 pre-existing tests pass unchanged, and the
+spaced-repetition `fire()` path was deliberately kept off the event
+log (+0.18% overhead in benchmark). The adapter module
+(`spikuit_agents.amkb`) that surfaces these as an `amkb.Store` is
+targeted at Spikuit v0.7.1 and will be gated on the full conformance
+suite passing. At that point, `amkb==0.1.0` can ship with Spikuit as
+its reference implementation.
 
 ## Install
 
