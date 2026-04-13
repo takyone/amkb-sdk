@@ -1,7 +1,13 @@
 # amkb — Python SDK for the Agent-Managed Knowledge Base protocol
 
-> **Status: Pre-alpha (v0.1.0).** This package tracks [amkb-spec](https://github.com/takyone/amkb-spec)
-> v0.2.0 and is under active development. APIs may change without notice.
+> 🚧 **Not yet usable.** This `0.0.x` release exists only to reserve
+> the name on PyPI while the protocol settles. The first usable
+> release will be `0.1.0`, gated on a real reference implementation
+> (Spikuit adapter) passing the full conformance suite. Until then,
+> the public API may change without notice and there is no install
+> story worth recommending. Track progress at
+> [amkb-spec](https://github.com/takyone/amkb-spec) and
+> [amkb-sdk](https://github.com/takyone/amkb-sdk).
 
 `amkb` is a **backend-agnostic** Python SDK for the AMKB protocol. It
 provides the types, error catalog, filter algebra, Store protocol,
