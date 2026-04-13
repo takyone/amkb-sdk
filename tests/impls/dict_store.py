@@ -28,7 +28,6 @@ skipped for this implementation by marking the store as
 
 from __future__ import annotations
 
-import copy
 from collections.abc import Iterator
 from types import TracebackType
 from typing import Any, ClassVar, Literal
@@ -36,36 +35,33 @@ from uuid import uuid4
 
 from amkb.errors import (
     EChangesetNotFound,
-    EConceptToNonsourceAttest,
     EConstraint,
-    ECrossLayerInvalid,
     EEdgeNotFound,
-    EEmptyContent,
     EInvalid,
-    EInvalidKind,
-    EInvalidLayer,
-    EInvalidRel,
     ELineageCycle,
-    EMergeConflict,
     ENodeAlreadyRetired,
     ENodeNotFound,
-    ESelfLoop,
     ETransactionClosed,
-)
-from amkb.filters import And, Eq, Filter, In, Not, Or, Range
+)  # noqa: F401 — EConstraint used by _apply_inverse
+from amkb.filters import Filter, evaluate as filter_evaluate
+from amkb.lineage import would_cycle
+from amkb.snapshots import edge_snapshot, node_snapshot
 from amkb.refs import ActorId, ChangeSetRef, EdgeRef, NodeRef, Timestamp, TransactionRef
 from amkb.store import Direction, RetrievalHit
 from amkb.types import (
-    ATTESTATION_RELS,
     KIND_CONCEPT,
     KIND_SOURCE,
-    RESERVED_KIND_LAYER,
-    RESERVED_REL_LAYERS,
     Actor,
     ChangeSet,
     Edge,
     Event,
     Node,
+)
+from amkb.validation import (
+    validate_concept_content,
+    validate_edge_rel,
+    validate_kind_layer,
+    validate_merge_uniform,
 )
 
 
@@ -226,7 +222,7 @@ class DictStore:
                 continue
             if layer_set is not None and node.layer not in layer_set:
                 continue
-            if filters is not None and not _eval_filter(filters, node.attrs):
+            if filters is not None and not filter_evaluate(filters, node.attrs):
                 continue
             # trivial substring ISF: score = occurrence count (monotone with list order)
             score = float(node.content.lower().count(needle))
@@ -393,41 +389,6 @@ class DictTransaction:
     def get_edge(self, ref: EdgeRef) -> Edge:
         return self._resolve_edge(ref)
 
-    # -- Validation helpers --------------------------------------------
-
-    @staticmethod
-    def _validate_kind_layer(kind: str, layer: str) -> None:
-        if not kind:
-            raise EInvalidKind("kind must be non-empty")
-        if not layer:
-            raise EInvalidLayer("layer must be non-empty")
-        required = RESERVED_KIND_LAYER.get(kind)
-        if required is not None and layer != required:
-            raise ECrossLayerInvalid(
-                f"kind={kind!r} requires layer={required!r}, got {layer!r}",
-                kind=kind,
-                layer=layer,
-            )
-
-    def _validate_rel(self, rel: str, src: Node, dst: Node) -> None:
-        if not rel:
-            raise EInvalidRel("rel must be non-empty")
-        pairing = RESERVED_REL_LAYERS.get(rel)
-        if pairing is not None:
-            expected_src, expected_dst = pairing
-            if src.layer != expected_src or dst.layer != expected_dst:
-                raise ECrossLayerInvalid(
-                    f"rel={rel!r} requires {expected_src}->{expected_dst}",
-                    rel=rel,
-                )
-            if src.ref == dst.ref:
-                raise ESelfLoop(f"self-loop forbidden for reserved rel {rel!r}")
-        # Attestation rule: concept → source edges must use an attestation rel
-        if src.kind == KIND_CONCEPT and dst.kind == KIND_SOURCE and rel not in ATTESTATION_RELS:
-            raise EConceptToNonsourceAttest(
-                f"concept→source edge must use an attestation rel, got {rel!r}",
-            )
-
     # -- Node lifecycle ------------------------------------------------
 
     def create(
@@ -439,9 +400,8 @@ class DictTransaction:
         attrs: dict[str, Any] | None = None,
     ) -> NodeRef:
         self._require_open()
-        self._validate_kind_layer(kind, layer)
-        if kind == KIND_CONCEPT and not content:
-            raise EEmptyContent("concept content must be non-empty")
+        validate_kind_layer(kind, layer)
+        validate_concept_content(kind, content)
         ref = NodeRef(_new_ref("n"))
         ts = self._store._tick()
         node = Node(
@@ -460,7 +420,7 @@ class DictTransaction:
                 kind="node.created",
                 target=ref,
                 before=None,
-                after=_node_snapshot(node),
+                after=node_snapshot(node),
             )
         )
         return ref
@@ -478,8 +438,7 @@ class DictTransaction:
         node = self._resolve_node(ref)
         if node.state == "retired":
             raise ENodeAlreadyRetired(f"node is retired: {ref}", ref=ref)
-        if node.kind == KIND_CONCEPT and not content:
-            raise EEmptyContent("concept content must be non-empty")
+        validate_concept_content(node.kind, content)
         ts = self._store._tick()
         new_node = Node(
             ref=node.ref,
@@ -497,8 +456,8 @@ class DictTransaction:
             Event(
                 kind="node.rewritten",
                 target=ref,
-                before=_node_snapshot(node),
-                after=_node_snapshot(new_node),
+                before=node_snapshot(node),
+                after=node_snapshot(new_node),
                 meta={"reason": reason},
             )
         )
@@ -533,8 +492,8 @@ class DictTransaction:
             Event(
                 kind="node.retired",
                 target=ref,
-                before=_node_snapshot(node),
-                after=_node_snapshot(retired),
+                before=node_snapshot(node),
+                after=node_snapshot(retired),
                 meta={"reason": reason},
             )
         )
@@ -561,8 +520,8 @@ class DictTransaction:
                 Event(
                     kind="edge.retired",
                     target=eref,
-                    before=_edge_snapshot(edge),
-                    after=_edge_snapshot(retired_edge),
+                    before=edge_snapshot(edge),
+                    after=edge_snapshot(retired_edge),
                     meta={"reason": f"incident to retired node {ref}"},
                 )
             )
@@ -585,21 +544,14 @@ class DictTransaction:
         for n in resolved:
             if n.state == "retired":
                 raise ENodeAlreadyRetired(f"node is retired: {n.ref}", ref=n.ref)
-        kinds = {n.kind for n in resolved}
-        layers = {n.layer for n in resolved}
-        if len(kinds) != 1 or len(layers) != 1:
-            raise EMergeConflict(
-                f"merge requires uniform kind and layer, got kinds={kinds}, layers={layers}"
-            )
+        validate_merge_uniform(resolved)
         # Cycle check: no target may be an ancestor of another
-        for i, ri in enumerate(unique):
-            for j, rj in enumerate(unique):
-                if i == j:
-                    continue
-                if rj in self._ancestors(ri):
-                    raise ELineageCycle(f"merge would create a cycle: {rj} ancestor of {ri}")
-        if resolved[0].kind == KIND_CONCEPT and not content:
-            raise EEmptyContent("concept content must be non-empty")
+        offender = would_cycle(unique, self._predecessors_of)
+        if offender is not None:
+            raise ELineageCycle(
+                f"merge would create a cycle: {offender} is an ancestor of a sibling"
+            )
+        validate_concept_content(resolved[0].kind, content)
 
         merged_ref = self.create(
             kind=resolved[0].kind,
@@ -643,7 +595,7 @@ class DictTransaction:
             raise ENodeAlreadyRetired(f"src retired: {src}", ref=src)
         if dst_node.state == "retired":
             raise ENodeAlreadyRetired(f"dst retired: {dst}", ref=dst)
-        self._validate_rel(rel, src_node, dst_node)
+        validate_edge_rel(rel, src_node, dst_node)
         ref = EdgeRef(_new_ref("e"))
         ts = self._store._tick()
         edge = Edge(
@@ -657,7 +609,7 @@ class DictTransaction:
         )
         self._pending_edge_writes[ref] = edge
         self._pending_events.append(
-            Event(kind="edge.created", target=ref, before=None, after=_edge_snapshot(edge))
+            Event(kind="edge.created", target=ref, before=None, after=edge_snapshot(edge))
         )
         return ref
 
@@ -689,8 +641,8 @@ class DictTransaction:
             Event(
                 kind="edge.retired",
                 target=ref,
-                before=_edge_snapshot(edge),
-                after=_edge_snapshot(retired),
+                before=edge_snapshot(edge),
+                after=edge_snapshot(retired),
                 meta={"reason": reason},
             )
         )
@@ -744,84 +696,14 @@ class DictTransaction:
 
     # -- Helpers -------------------------------------------------------
 
-    def _ancestors(self, ref: NodeRef) -> set[NodeRef]:
-        out: set[NodeRef] = set()
-        stack = list(self._store._node_predecessors.get(ref, ()))
-        stack.extend(self._pending_pred_writes.get(ref, ()))
-        while stack:
-            cur = stack.pop()
-            if cur in out:
-                continue
-            out.add(cur)
-            stack.extend(self._store._node_predecessors.get(cur, ()))
-            stack.extend(self._pending_pred_writes.get(cur, ()))
-        return out
+    def _predecessors_of(self, ref: NodeRef) -> tuple[NodeRef, ...]:
+        """Merge committed and pending predecessor writes for ``ref``."""
+        if ref in self._pending_pred_writes:
+            return self._pending_pred_writes[ref]
+        return self._store._node_predecessors.get(ref, ())
 
 
 # -------- Module helpers --------
-
-
-def _node_snapshot(node: Node) -> dict[str, Any]:
-    from amkb.types import compute_content_hash
-
-    return {
-        "ref": node.ref,
-        "kind": node.kind,
-        "layer": node.layer,
-        "content": node.content,
-        "content_hash": compute_content_hash(node.content),
-        "attrs": copy.deepcopy(node.attrs),
-        "state": node.state,
-        "created_at": node.created_at,
-        "updated_at": node.updated_at,
-        "retired_at": node.retired_at,
-    }
-
-
-def _edge_snapshot(edge: Edge) -> dict[str, Any]:
-    return {
-        "ref": edge.ref,
-        "rel": edge.rel,
-        "src": edge.src,
-        "dst": edge.dst,
-        "attrs": copy.deepcopy(edge.attrs),
-        "state": edge.state,
-        "created_at": edge.created_at,
-        "retired_at": edge.retired_at,
-    }
-
-
-def _eval_filter(filt: Filter, attrs: dict[str, Any]) -> bool:
-    if isinstance(filt, Eq):
-        return filt.key in attrs and attrs[filt.key] == filt.value
-    if isinstance(filt, In):
-        return filt.key in attrs and attrs[filt.key] in filt.values
-    if isinstance(filt, Range):
-        if filt.key not in attrs:
-            return False
-        val = attrs[filt.key]
-        if not isinstance(val, (int, float)):
-            return False
-        if filt.min is not None:
-            if filt.inclusive:
-                if val < filt.min:
-                    return False
-            elif val <= filt.min:
-                return False
-        if filt.max is not None:
-            if filt.inclusive:
-                if val > filt.max:
-                    return False
-            elif val >= filt.max:
-                return False
-        return True
-    if isinstance(filt, And):
-        return all(_eval_filter(f, attrs) for f in filt.filters)
-    if isinstance(filt, Or):
-        return any(_eval_filter(f, attrs) for f in filt.filters)
-    if isinstance(filt, Not):
-        return not _eval_filter(filt.filter, attrs)
-    raise EInvalid(f"unknown filter node: {type(filt).__name__}")
 
 
 def _apply_inverse(tx: DictTransaction, ev: Event) -> None:

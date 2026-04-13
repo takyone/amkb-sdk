@@ -16,16 +16,20 @@ Spec obligations:
 - Extension filters MUST be prefixed ``ext:``; recipients unfamiliar
   with an extension MUST reject the filter with ``E_INVALID``.
 
-This module defines only the AST. Evaluation of a filter against a
-concrete ``Node`` lives in each store implementation; a reference
-evaluator is provided for convenience in ``amkb.reference``.
+This module defines the AST and a pure reference evaluator
+(:func:`evaluate`). Implementations MAY use it directly over an attrs
+mapping, or implement filter translation into their native query
+layer (SQL WHERE, Chroma where-clause, etc.) and fall back to this
+evaluator only for post-filtering.
 """
 
 from __future__ import annotations
 
-from typing import Any, Union
+from typing import Any, Mapping, Union
 
 import msgspec
+
+from amkb.errors import EInvalid
 
 
 class Eq(msgspec.Struct, frozen=True, tag="eq"):
@@ -78,6 +82,52 @@ Filter = Union[Eq, In, Range, And, Or, Not]
 tag per ``msgspec.Struct(tag=...)``."""
 
 
+def evaluate(filt: Filter, attrs: Mapping[str, Any]) -> bool:
+    """Evaluate a :data:`Filter` against an ``attrs`` mapping.
+
+    Semantics match the spec closed algebra:
+
+    - Missing keys → ``False`` for leaf predicates (``Eq``, ``In``,
+      ``Range``). Implementations that want "present and equal" vs
+      "absent" distinctions MUST encode that in their own layer;
+      this evaluator treats absence as non-match.
+    - ``Range`` short-circuits to ``False`` on non-numeric values.
+    - Boolean combinators (``And``, ``Or``, ``Not``) recurse.
+    - Any filter node that is not a recognized variant raises
+      :class:`amkb.errors.EInvalid`.
+    """
+    if isinstance(filt, Eq):
+        return filt.key in attrs and attrs[filt.key] == filt.value
+    if isinstance(filt, In):
+        return filt.key in attrs and attrs[filt.key] in filt.values
+    if isinstance(filt, Range):
+        if filt.key not in attrs:
+            return False
+        val = attrs[filt.key]
+        if not isinstance(val, (int, float)):
+            return False
+        if filt.min is not None:
+            if filt.inclusive:
+                if val < filt.min:
+                    return False
+            elif val <= filt.min:
+                return False
+        if filt.max is not None:
+            if filt.inclusive:
+                if val > filt.max:
+                    return False
+            elif val >= filt.max:
+                return False
+        return True
+    if isinstance(filt, And):
+        return all(evaluate(f, attrs) for f in filt.filters)
+    if isinstance(filt, Or):
+        return any(evaluate(f, attrs) for f in filt.filters)
+    if isinstance(filt, Not):
+        return not evaluate(filt.filter, attrs)
+    raise EInvalid(f"unknown filter node: {type(filt).__name__}")
+
+
 __all__ = [
     "And",
     "Eq",
@@ -86,4 +136,5 @@ __all__ = [
     "Not",
     "Or",
     "Range",
+    "evaluate",
 ]
