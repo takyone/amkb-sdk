@@ -29,8 +29,11 @@ The package consists of:
 5. **Conformance suite** (`amkb.conformance`) — pytest functions
    mirroring the test matrix at
    [amkb-spec/conformance/](https://github.com/takyone/amkb-spec/tree/main/conformance).
-   Any implementation can exercise the suite by providing a ``store``
-   fixture and running `pytest --pyargs amkb.conformance`.
+   L1 (Core), L2 (Lineage), L3 (Transactional), L4a (Structural), and
+   L4b (Intent) all ship. See [Implementing a Store](#implementing-a-store)
+   below for how a third-party implementation runs the suite —
+   `pytest --pyargs amkb.conformance` does **not** work on its own;
+   the star-import pattern documented there does.
 
 ## Relationship to Spikuit
 
@@ -78,6 +81,81 @@ store. A minimal dict-backed implementation used as an executable
 reference for the conformance suite lives in `tests/impls/dict_store.py`
 — it is intentionally kept in tests rather than shipped as part of
 the package, to reinforce that the SDK itself is backend-agnostic.
+
+### Running the conformance suite against your Store
+
+`pytest --pyargs amkb.conformance` does **not** work by itself: pytest
+only loads `conftest.py` files that are filesystem ancestors of the
+files it collects, so when pytest collects test modules straight out
+of the installed `amkb.conformance` package, a `conftest.py` sitting
+at *your* repo root is never seen — your `store` fixture never
+registers, and every test errors with "fixture 'store' not found."
+
+The robust pattern — the same one used by
+[Spikuit's adapter test](https://github.com/takyone/spikuit/blob/main/spikuit-agents/tests/test_amkb_conformance.py)
+— is a star-import wrapper that pulls the test *functions* into a
+module inside your own test tree, where your `conftest.py` **is** an
+ancestor. Write exactly these two files:
+
+```python
+# tests/conftest.py
+import pytest
+from amkb.conformance.fixtures import actor  # noqa: F401  (re-export default actor fixture)
+from my_package import MyStore
+
+@pytest.fixture
+def store():
+    return MyStore()  # fresh, empty, function-scoped
+```
+
+```python
+# tests/test_amkb_conformance.py
+from amkb.conformance.test_l1_core import *          # noqa: F401,F403
+from amkb.conformance.test_l2_lineage import *       # noqa: F401,F403
+from amkb.conformance.test_l3_transactional import * # noqa: F401,F403
+from amkb.conformance.test_l4a_structural import *   # noqa: F401,F403
+from amkb.conformance.test_l4b_intent import *       # noqa: F401,F403
+```
+
+Then run `pytest` from your repo root as normal.
+
+To opt out of a specific test (e.g. it encodes a decision your
+implementation legitimately makes differently), redefine it below the
+star imports:
+
+```python
+# tests/test_amkb_conformance.py (continued)
+import pytest
+
+@pytest.mark.skip(reason="documented deviation: <why>")
+def test_L2_rewrite_01_updated_at_advances(store, actor):  # noqa: F811
+    ...
+```
+
+### Fixture contract
+
+- `store` — pytest fixture, function-scoped, yields a **fresh, empty**
+  instance satisfying `amkb.store.Store` structurally.
+- `actor` — pytest fixture providing an `amkb.types.Actor`. A default
+  is exported from `amkb.conformance.fixtures`; override it in your
+  own `conftest.py` if you need a specific identity.
+- Capability flags — plain attributes on your `store` instance,
+  default `False`/absent, each gating one or more L3 tests:
+  - `supports_concurrency_detection`
+  - `supports_merge_revert`
+  - `supports_revert_conflict_detection`
+  - `supports_commit_time_constraints`
+- `setup_required_attribute_pair(actor)` — optional callable attribute
+  on `store`, used only by the `supports_commit_time_constraints`
+  test to construct a reserved-attribute dependency pair.
+- Skip semantics: a skipped capability-gated test means "this
+  implementation does not claim the capability," not a failure.
+
+### Conformance claim
+
+An implementation is **conformant at level X** when every test at
+level X passes, with no skips other than capability-gated ones for
+capabilities it does not claim.
 
 ## License
 
