@@ -175,6 +175,28 @@ An implementation is **conformant at level X** when every test at
 level X passes, with no skips other than capability-gated ones for
 capabilities it does not claim.
 
+### Coverage vs. the amkb-spec matrix
+
+A documented gap is fine; a silent one isn't. Four entries in the
+`amkb-spec/conformance/` matrix have no executable test in this
+release:
+
+| Matrix ID                | Gap                                                                                   | Status |
+|---------------------------|----------------------------------------------------------------------------------------|--------|
+| L1.events.03              | Durable-across-restart                                                                  | No test yet — needs a `reopen`-style capability hook to model a store restart. |
+| L1.tx.02                  | `begin` requires an actor                                                               | No test yet. |
+| L2.lineage.01             | Transitive lineage query                                                                | No test yet — blocked on amkb-spec decision S-2 (the lineage operation's shape). |
+| L2.lineage.02             | Cycle-prevention query                                                                  | No test yet — blocked on amkb-spec decision S-2. `amkb.lineage.would_cycle` and `ELineageCycle` already exist and are exercised indirectly today via `merge()`'s cycle check, just not as a standalone lineage-query test. |
+
+Separately, `test_L2_rewrite_01_updated_at_advances` (which does ship)
+tests different semantics than matrix entry L2.rewrite.01: it verifies
+predecessor visibility through the `node.rewritten` event's
+before/after snapshots, not an actual predecessor-chain query.
+Reconciling the two is blocked on amkb-spec decision S-1 (whether
+rewrite is in-place). Once S-1/S-2 land upstream, the missing tests
+will be implemented, `test_L2_rewrite_01` updated to the decided
+semantics, and `__spec_version__` bumped if the spec version bumps.
+
 ## Development
 
 This repo's own baseline — unit tests plus the conformance suite run
