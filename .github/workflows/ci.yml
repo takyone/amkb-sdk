@@ -33,7 +33,7 @@ jobs:
         # imports as part of checking the installed package.
         run: uv run --python ${{ matrix.python-version }} --no-project --with mypy --with msgspec --with pytest --with-editable . mypy
 
-      - name: pytest (full baseline: tests + conformance)
+      - name: "pytest (full baseline: tests + conformance)"
         # Editable install is required: a non-editable install collides with
         # src/ (ImportPathMismatchError). Bare `pytest` only runs tests/
         # (testpaths=["tests"]) -- not the full baseline, so both paths are
