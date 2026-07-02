@@ -265,8 +265,9 @@ ERROR_BY_CODE: dict[str, type[AmkbError]] = {cls.code: cls for cls in CANONICAL_
 
 
 __all__ = [
-    "AmkbError",
     "CANONICAL_ERRORS",
+    "ERROR_BY_CODE",
+    "AmkbError",
     "EChangesetNotFound",
     "EConceptToNonsourceAttest",
     "EConcurrentModification",
@@ -289,7 +290,6 @@ __all__ = [
     "ESelfLoop",
     "ESourceInRetrieval",
     "ETransactionClosed",
-    "ERROR_BY_CODE",
     "ErrorCategory",
     "InternalError",
     "InvariantError",

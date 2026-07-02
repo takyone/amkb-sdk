@@ -13,7 +13,7 @@ or graph stores can all plug in.
 
 from __future__ import annotations
 
-from typing import Callable, Iterable
+from collections.abc import Callable, Iterable
 
 from amkb.refs import NodeRef
 
@@ -38,9 +38,7 @@ def ancestors(ref: NodeRef, predecessors_of: PredecessorsOf) -> set[NodeRef]:
     return out
 
 
-def would_cycle(
-    refs: Iterable[NodeRef], predecessors_of: PredecessorsOf
-) -> NodeRef | None:
+def would_cycle(refs: Iterable[NodeRef], predecessors_of: PredecessorsOf) -> NodeRef | None:
     """Check whether any ref in ``refs`` is an ancestor of another.
 
     Used by merge to reject lineage cycles before persisting the new

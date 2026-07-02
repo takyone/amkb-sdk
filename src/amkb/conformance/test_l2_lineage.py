@@ -20,7 +20,6 @@ from amkb.types import (
     Actor,
 )
 
-
 # ============================================================================
 # rewrite
 # ============================================================================
@@ -113,9 +112,7 @@ def test_L2_merge_03_event_shape(store: Store, actor: Actor) -> None:
     with store.begin(tag="merge", actor=actor) as tx:
         m = tx.merge([a, b, c], content="abc", reason="dedup")
         cs = tx.commit()
-    retires = [
-        e for e in cs.events if e.kind == "node.retired" and e.target in {a, b, c}
-    ]
+    retires = [e for e in cs.events if e.kind == "node.retired" and e.target in {a, b, c}]
     merges = [e for e in cs.events if e.kind == "node.merged" and e.target == m]
     assert len(retires) == 3
     assert len(merges) == 1

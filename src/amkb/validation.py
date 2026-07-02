@@ -12,7 +12,7 @@ the spec wins — file an issue.
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from amkb.errors import (
     EConceptToNonsourceAttest,
@@ -97,8 +97,8 @@ def validate_merge_uniform(nodes: Iterable[Node]) -> None:
 
 
 __all__ = [
-    "validate_kind_layer",
     "validate_concept_content",
     "validate_edge_rel",
+    "validate_kind_layer",
     "validate_merge_uniform",
 ]

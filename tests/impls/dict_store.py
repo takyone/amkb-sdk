@@ -42,14 +42,14 @@ from amkb.errors import (
     ENodeAlreadyRetired,
     ENodeNotFound,
     ETransactionClosed,
-)  # noqa: F401 — EConstraint used by _apply_inverse
-from amkb.filters import Filter, evaluate as filter_evaluate
+)
+from amkb.filters import Filter
+from amkb.filters import evaluate as filter_evaluate
 from amkb.lineage import would_cycle
-from amkb.snapshots import edge_snapshot, node_snapshot
 from amkb.refs import ActorId, ChangeSetRef, EdgeRef, NodeRef, Timestamp, TransactionRef
+from amkb.snapshots import edge_snapshot, node_snapshot
 from amkb.store import Direction, RetrievalHit
 from amkb.types import (
-    KIND_CONCEPT,
     KIND_SOURCE,
     Actor,
     ChangeSet,
@@ -92,7 +92,7 @@ class DictStore:
 
     # -- Session entry -------------------------------------------------
 
-    def begin(self, *, tag: str, actor: Actor) -> "DictTransaction":
+    def begin(self, *, tag: str, actor: Actor) -> DictTransaction:
         if not tag:
             raise EInvalid("tag must be non-empty")
         return DictTransaction(self, tag=tag, actor=actor)
@@ -293,9 +293,7 @@ class DictStore:
             targets = [ChangeSetRef(target)]
         else:
             # Treat as tag
-            matches = [
-                r for r in self._changeset_order if self._changesets[r].tag == target
-            ]
+            matches = [r for r in self._changeset_order if self._changesets[r].tag == target]
             if not matches:
                 raise EChangesetNotFound(f"no changeset for target: {target}", target=target)
             targets = list(reversed(matches))
@@ -344,7 +342,7 @@ class DictTransaction:
 
     # -- Context manager -----------------------------------------------
 
-    def __enter__(self) -> "DictTransaction":
+    def __enter__(self) -> DictTransaction:
         return self
 
     def __exit__(

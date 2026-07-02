@@ -22,10 +22,9 @@ from amkb.types import (
     LAYER_CATEGORY,
     LAYER_CONCEPT,
     LAYER_SOURCE,
-    Node,
-    REL_ATTESTED_BY,
     REL_DERIVED_FROM,
     REL_RELATES_TO,
+    Node,
 )
 from amkb.validation import (
     validate_concept_content,
