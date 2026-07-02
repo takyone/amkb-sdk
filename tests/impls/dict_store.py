@@ -36,6 +36,7 @@ from uuid import uuid4
 
 from amkb.errors import (
     EChangesetNotFound,
+    EConcurrentModification,
     EConstraint,
     EEdgeNotFound,
     EInvalid,
@@ -71,9 +72,20 @@ def _new_ref(prefix: str) -> str:
 
 
 class DictStore:
-    """A dict-backed AMKB store. Satisfies the ``Store`` Protocol structurally."""
+    """A dict-backed AMKB store. Satisfies the ``Store`` Protocol structurally.
+
+    Advertises ``supports_concurrency_detection``: each
+    :class:`DictTransaction` records the ``updated_at`` of every Node
+    it rewrites or retires the first time it touches that Node (from
+    committed state, not from its own pending writes). At commit, if
+    the store's current committed value for that Node has moved since
+    (i.e. another transaction committed a change to it first), commit
+    raises :class:`amkb.errors.EConcurrentModification` before
+    applying any of this transaction's writes.
+    """
 
     durability_level: ClassVar[Literal["A", "B", "C", "C+"]] = "A"
+    supports_concurrency_detection: ClassVar[bool] = True
 
     def __init__(self) -> None:
         self._clock: int = 0
@@ -340,6 +352,11 @@ class DictTransaction:
         self._pending_edge_writes: dict[EdgeRef, Edge] = {}
         self._pending_pred_writes: dict[NodeRef, tuple[NodeRef, ...]] = {}
         self._pending_events: list[Event] = []
+        # Concurrency detection: the committed `updated_at` of each Node
+        # the first time this tx touches it via rewrite/retire, used to
+        # detect at commit time whether another tx committed a change
+        # to the same Node first. See DictStore's class docstring.
+        self._base_versions: dict[NodeRef, Timestamp] = {}
 
     # -- Context manager -----------------------------------------------
 
@@ -437,6 +454,7 @@ class DictTransaction:
         node = self._resolve_node(ref)
         if node.state == "retired":
             raise ENodeAlreadyRetired(f"node is retired: {ref}", ref=ref)
+        self._base_versions.setdefault(ref, node.updated_at)
         validate_concept_content(node.kind, content)
         ts = self._store._tick()
         new_node = Node(
@@ -474,6 +492,7 @@ class DictTransaction:
         node = self._resolve_node(ref)
         if node.state == "retired":
             return  # idempotent no-op
+        self._base_versions.setdefault(ref, node.updated_at)
         ts = self._store._tick()
         retired = Node(
             ref=node.ref,
@@ -657,6 +676,17 @@ class DictTransaction:
             # commit" and "one event per effective mutation" (zero here).
             pass
         store = self._store
+        # Concurrency check: for every Node this tx rewrote/retired from
+        # already-committed state, verify nobody else committed a change
+        # to it first. Skips Nodes this tx itself created (never in
+        # store._nodes yet, so no prior committer could have raced them).
+        for ref, base_ts in self._base_versions.items():
+            current = store._nodes.get(ref)
+            if current is not None and current.updated_at != base_ts:
+                raise EConcurrentModification(
+                    f"node {ref} was modified by another transaction since this tx began",
+                    ref=ref,
+                )
         ts = store._tick()
         # Apply staged writes
         for ref, node in self._pending_node_writes.items():
