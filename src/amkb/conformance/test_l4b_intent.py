@@ -13,6 +13,7 @@ SDK signature.
 
 from __future__ import annotations
 
+import itertools
 import math
 
 import pytest
@@ -21,7 +22,6 @@ from amkb.errors import EInvalid
 from amkb.filters import Eq
 from amkb.store import Store
 from amkb.types import KIND_CONCEPT, LAYER_CONCEPT, Actor
-
 
 # ============================================================================
 # retrieve
@@ -37,9 +37,7 @@ def test_L4b_retrieve_01_hit_carries_score(store: Store, actor: Actor) -> None:
     hits = store.retrieve("widget", k=5)
     assert len(hits) >= 1
     for h in hits:
-        assert h.score is None or (
-            isinstance(h.score, float) and math.isfinite(h.score)
-        )
+        assert h.score is None or (isinstance(h.score, float) and math.isfinite(h.score))
 
 
 def test_L4b_retrieve_02_score_ordering_monotone(store: Store, actor: Actor) -> None:
@@ -50,11 +48,15 @@ def test_L4b_retrieve_02_score_ordering_monotone(store: Store, actor: Actor) -> 
         tx.create(kind=KIND_CONCEPT, layer=LAYER_CONCEPT, content="alpha alpha alpha")
         tx.commit()
     hits = store.retrieve("alpha")
-    scored = [h for h in hits if h.score is not None]
-    if len(scored) < 2:
+    # Bind scores to a non-None local list before comparing: the list
+    # comprehension's filter narrows `h.score` for the element
+    # expression, but `h.score` accessed again off a `RetrievalHit`
+    # later is still typed `float | None` under mypy strict.
+    scores: list[float] = [h.score for h in hits if h.score is not None]
+    if len(scores) < 2:
         pytest.skip("impl returned <2 scored hits; ordering is trivially true")
-    for prev, cur in zip(scored, scored[1:]):
-        assert prev.score >= cur.score
+    for prev_score, cur_score in itertools.pairwise(scores):
+        assert prev_score >= cur_score
 
 
 def test_L4b_retrieve_03_limit_and_filter(store: Store, actor: Actor) -> None:
@@ -124,9 +126,7 @@ def test_L4b_retrieve_07_repeated_call_stability(store: Store, actor: Actor) -> 
     """L4b.retrieve.07 — Two identical retrieve calls return the same ordered list."""
     with store.begin(tag="t", actor=actor) as tx:
         for i in range(5):
-            tx.create(
-                kind=KIND_CONCEPT, layer=LAYER_CONCEPT, content=f"alpha beta {i}"
-            )
+            tx.create(kind=KIND_CONCEPT, layer=LAYER_CONCEPT, content=f"alpha beta {i}")
         tx.commit()
     first = store.retrieve("alpha", k=3)
     second = store.retrieve("alpha", k=3)

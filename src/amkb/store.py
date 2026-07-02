@@ -149,7 +149,7 @@ class Transaction(Protocol):
 
     # -- Context manager -----------------------------------------------
 
-    def __enter__(self) -> "Transaction": ...
+    def __enter__(self) -> Transaction: ...
 
     def __exit__(
         self,

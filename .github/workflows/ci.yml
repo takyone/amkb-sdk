@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: ruff check
+        run: uv run --python ${{ matrix.python-version }} --no-project --with ruff ruff check .
+
+      - name: ruff format --check
+        run: uv run --python ${{ matrix.python-version }} --no-project --with ruff ruff format --check .
+
+      - name: mypy (strict)
+        # pytest must be present in this env too: amkb.conformance submodules
+        # import it, and mypy (packages=["amkb"], strict) resolves those
+        # imports as part of checking the installed package.
+        run: uv run --python ${{ matrix.python-version }} --no-project --with mypy --with msgspec --with pytest --with-editable . mypy
+
+      - name: pytest (full baseline: tests + conformance)
+        # Editable install is required: a non-editable install collides with
+        # src/ (ImportPathMismatchError). Bare `pytest` only runs tests/
+        # (testpaths=["tests"]) -- not the full baseline, so both paths are
+        # passed explicitly here.
+        run: uv run --python ${{ matrix.python-version }} --no-project --with pytest --with pytest-cov --with msgspec --with-editable . python -m pytest tests src/amkb/conformance -q

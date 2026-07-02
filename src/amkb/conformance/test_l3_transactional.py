@@ -48,7 +48,8 @@ def _cap(store: Store, name: str) -> bool:
 
 
 def test_L3_concurrent_01_modification_detected(store: Store, actor: Actor) -> None:
-    """L3.concurrent.01 — Conflicting concurrent commits: second raises E_CONCURRENT_MODIFICATION."""
+    """L3.concurrent.01 — Conflicting concurrent commits: second raises
+    E_CONCURRENT_MODIFICATION."""
     if not _cap(store, "supports_concurrency_detection"):
         pytest.skip("store does not advertise supports_concurrency_detection")
     with store.begin(tag="seed", actor=actor) as tx:
@@ -148,7 +149,7 @@ def test_L3_constraint_01_commit_time_invariant(store: Store, actor: Actor) -> N
     setup = getattr(store, "setup_required_attribute_pair", None)
     if setup is None:
         pytest.skip("store did not provide setup_required_attribute_pair helper")
-    a, b = setup(actor=actor)
+    _a, b = setup(actor=actor)
     with store.begin(tag="break", actor=actor) as tx:
         tx.retire(b, reason="break")
         with pytest.raises(EConstraint):

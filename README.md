@@ -1,11 +1,12 @@
 # amkb — Python SDK for the Agent-Managed Knowledge Base protocol
 
-> 🚧 **Not yet usable.** This `0.0.x` release exists only to reserve
-> the name on PyPI while the protocol settles. The first usable
-> release will be `0.1.0`, gated on a real reference implementation
-> (Spikuit adapter) passing the full conformance suite. Until then,
-> the public API may change without notice and there is no install
-> story worth recommending. Track progress at
+> 🚧 **Not yet released as `0.1.0`.** This `0.0.x` version exists to
+> reserve the name on PyPI while the protocol settles. The reference
+> implementation (Spikuit's `amkb.Store` adapter) already passes
+> L1/L2/L4a/L4b with the skips documented in "Relationship to
+> Spikuit" below — the release gate for `0.1.0` is met; what remains
+> is this repo's own packaging/CI process. Until `0.1.0` ships, the
+> public API may change without notice. Track progress at
 > [amkb-spec](https://github.com/takyone/amkb-spec) and
 > [amkb-sdk](https://github.com/takyone/amkb-sdk).
 
@@ -29,8 +30,11 @@ The package consists of:
 5. **Conformance suite** (`amkb.conformance`) — pytest functions
    mirroring the test matrix at
    [amkb-spec/conformance/](https://github.com/takyone/amkb-spec/tree/main/conformance).
-   Any implementation can exercise the suite by providing a ``store``
-   fixture and running `pytest --pyargs amkb.conformance`.
+   L1 (Core), L2 (Lineage), L3 (Transactional), L4a (Structural), and
+   L4b (Intent) all ship. See [Implementing a Store](#implementing-a-store)
+   below for how a third-party implementation runs the suite —
+   `pytest --pyargs amkb.conformance` does **not** work on its own;
+   the star-import pattern documented there does.
 
 ## Relationship to Spikuit
 
@@ -39,18 +43,35 @@ graph and is the first real consumer of `amkb`. Spikuit features
 such as FSRS scheduling, APPNP propagation, and pressure dynamics live
 on top of the AMKB protocol, not inside it.
 
-**Status (2026-04):** Spikuit **v0.7.0** ships the `spikuit-core`
-plumbing needed to back an adapter — soft-retire as the sole delete
-path, a `changeset` / `event` log, an `async with circuit.transaction()`
-wrapper, `neuron_predecessor` lineage, and a physical-purge escape
-hatch via `spkt history prune`. The hot read/write paths stayed
-byte-identical: 408 pre-existing tests pass unchanged, and the
-spaced-repetition `fire()` path was deliberately kept off the event
-log (+0.18% overhead in benchmark). The adapter module
-(`spikuit_agents.amkb`) that surfaces these as an `amkb.Store` is
-targeted at Spikuit v0.7.1 and will be gated on the full conformance
-suite passing. At that point, `amkb==0.1.0` can ship with Spikuit as
-its reference implementation.
+**Status:** Spikuit **v0.9.0** ships an `amkb.Store` adapter
+(`spikuit_agents/src/spikuit_agents/amkb/`) backed by its
+`spikuit-core` Circuit/Brain plumbing. Running the star-import
+conformance wrapper (`spikuit-agents/tests/test_amkb_conformance.py`)
+against it passes **31 tests with 12 documented skips and zero
+failures**:
+
+- **L1 (Core), L4a (Structural), L4b (Intent)** pass in full except
+  for the gaps below.
+- **L2 (Lineage)** passes except `test_L2_merge_02_kind_mismatch_rejected`
+  (`KIND_CATEGORY` is not yet a Spikuit kind).
+- **L3 (Transactional)** is entirely skipped: Spikuit's Circuit
+  forbids nested/concurrent transactions and has no `revert()` yet;
+  MVCC and revert are on the adapter's roadmap.
+- Two L4a tests (`neighbors_04`, `walk_02`) skip because
+  `REL_DERIVED_FROM` / `REL_ATTESTED_BY` have no `SynapseType`
+  counterpart in Spikuit.
+- One L4b test (`retrieve_03`) skips because Spikuit only exposes
+  `type`/`domain`/`source` as queryable attrs, not free-form filters;
+  another (`retrieve_02`) skips because the fixture happens to
+  produce fewer than two scored hits against Spikuit's ISF — the
+  shared conformance test itself treats that as trivially true rather
+  than a capability gap.
+
+This is the release gate for `amkb` 0.1.0: it ships once the
+reference implementation passes L1/L2/L4a/L4b with only documented
+skips, which is already the current state above. There is no
+additional gate — the remaining work to ship 0.1.0 lives in this
+repo (packaging, CI, docs), not in the reference implementation.
 
 ## Install
 
@@ -78,6 +99,131 @@ store. A minimal dict-backed implementation used as an executable
 reference for the conformance suite lives in `tests/impls/dict_store.py`
 — it is intentionally kept in tests rather than shipped as part of
 the package, to reinforce that the SDK itself is backend-agnostic.
+
+### Running the conformance suite against your Store
+
+`pytest --pyargs amkb.conformance` does **not** work by itself: pytest
+only loads `conftest.py` files that are filesystem ancestors of the
+files it collects, so when pytest collects test modules straight out
+of the installed `amkb.conformance` package, a `conftest.py` sitting
+at *your* repo root is never seen — your `store` fixture never
+registers, and every test errors with "fixture 'store' not found."
+
+The robust pattern — the same one used by
+[Spikuit's adapter test](https://github.com/takyone/spikuit/blob/main/spikuit-agents/tests/test_amkb_conformance.py)
+— is a star-import wrapper that pulls the test *functions* into a
+module inside your own test tree, where your `conftest.py` **is** an
+ancestor. Write exactly these two files:
+
+```python
+# tests/conftest.py
+import pytest
+from amkb.conformance.fixtures import actor  # noqa: F401  (re-export default actor fixture)
+from my_package import MyStore
+
+@pytest.fixture
+def store():
+    return MyStore()  # fresh, empty, function-scoped
+```
+
+```python
+# tests/test_amkb_conformance.py
+from amkb.conformance.test_l1_core import *          # noqa: F401,F403
+from amkb.conformance.test_l2_lineage import *       # noqa: F401,F403
+from amkb.conformance.test_l3_transactional import * # noqa: F401,F403
+from amkb.conformance.test_l4a_structural import *   # noqa: F401,F403
+from amkb.conformance.test_l4b_intent import *       # noqa: F401,F403
+```
+
+Then run `pytest` from your repo root as normal.
+
+To opt out of a specific test (e.g. it encodes a decision your
+implementation legitimately makes differently), redefine it below the
+star imports:
+
+```python
+# tests/test_amkb_conformance.py (continued)
+import pytest
+
+@pytest.mark.skip(reason="documented deviation: <why>")
+def test_L2_rewrite_01_updated_at_advances(store, actor):  # noqa: F811
+    ...
+```
+
+### Fixture contract
+
+- `store` — pytest fixture, function-scoped, yields a **fresh, empty**
+  instance satisfying `amkb.store.Store` structurally.
+- `actor` — pytest fixture providing an `amkb.types.Actor`. A default
+  is exported from `amkb.conformance.fixtures`; override it in your
+  own `conftest.py` if you need a specific identity.
+- Capability flags — plain attributes on your `store` instance,
+  default `False`/absent, each gating one or more L3 tests:
+  - `supports_concurrency_detection`
+  - `supports_merge_revert`
+  - `supports_revert_conflict_detection`
+  - `supports_commit_time_constraints`
+- `setup_required_attribute_pair(actor)` — optional callable attribute
+  on `store`, used only by the `supports_commit_time_constraints`
+  test to construct a reserved-attribute dependency pair.
+- Skip semantics: a skipped capability-gated test means "this
+  implementation does not claim the capability," not a failure.
+
+### Conformance claim
+
+An implementation is **conformant at level X** when every test at
+level X passes, with no skips other than capability-gated ones for
+capabilities it does not claim.
+
+### Coverage vs. the amkb-spec matrix
+
+A documented gap is fine; a silent one isn't. Four entries in the
+`amkb-spec/conformance/` matrix have no executable test in this
+release:
+
+| Matrix ID                | Gap                                                                                   | Status |
+|---------------------------|----------------------------------------------------------------------------------------|--------|
+| L1.events.03              | Durable-across-restart                                                                  | No test yet — needs a `reopen`-style capability hook to model a store restart. |
+| L1.tx.02                  | `begin` requires an actor                                                               | No test yet. |
+| L2.lineage.01             | Transitive lineage query                                                                | No test yet — blocked on amkb-spec decision S-2 (the lineage operation's shape). |
+| L2.lineage.02             | Cycle-prevention query                                                                  | No test yet — blocked on amkb-spec decision S-2. `amkb.lineage.would_cycle` and `ELineageCycle` already exist and are exercised indirectly today via `merge()`'s cycle check, just not as a standalone lineage-query test. |
+
+Separately, `test_L2_rewrite_01_updated_at_advances` (which does ship)
+tests different semantics than matrix entry L2.rewrite.01: it verifies
+predecessor visibility through the `node.rewritten` event's
+before/after snapshots, not an actual predecessor-chain query.
+Reconciling the two is blocked on amkb-spec decision S-1 (whether
+rewrite is in-place). Once S-1/S-2 land upstream, the missing tests
+will be implemented, `test_L2_rewrite_01` updated to the decided
+semantics, and `__spec_version__` bumped if the spec version bumps.
+
+## Development
+
+This repo's own baseline — unit tests plus the conformance suite run
+against the in-tree `DictStore` — requires an **editable install**:
+a non-editable install collides with the `src/` layout
+(`ImportPathMismatchError`). A bare `pytest` invocation only collects
+`tests/` (`testpaths = ["tests"]` in `pyproject.toml`) — 36 unit
+tests, not the full baseline. Run both paths explicitly:
+
+```sh
+uv run --no-project --with pytest --with pytest-cov --with msgspec --with-editable . \
+  python -m pytest tests src/amkb/conformance -q
+```
+
+Lint and type-check:
+
+```sh
+uv run --no-project --with ruff ruff check .
+uv run --no-project --with ruff ruff format --check .
+uv run --no-project --with mypy --with msgspec --with pytest --with-editable . mypy
+```
+
+The `mypy` invocation needs `--with pytest` alongside `--with-editable .`:
+`packages = ["amkb"]` in `[tool.mypy]` checks the installed package,
+and `amkb.conformance`'s submodules import pytest, so mypy needs it
+resolvable in the same environment even though nothing in `amkb`
+itself depends on it at runtime.
 
 ## License
 

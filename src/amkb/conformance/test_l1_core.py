@@ -28,7 +28,6 @@ from amkb.types import (
     Actor,
 )
 
-
 # ============================================================================
 # create
 # ============================================================================
@@ -119,9 +118,7 @@ def test_L1_retire_02_retire_already_retired_is_noop(store: Store, actor: Actor)
     with store.begin(tag="t3", actor=actor) as tx:
         tx.retire(a, reason="again")
         cs = tx.commit()
-    retire_events = [
-        e for e in cs.events if e.kind == "node.retired" and e.target == a
-    ]
+    retire_events = [e for e in cs.events if e.kind == "node.retired" and e.target == a]
     assert retire_events == []
 
 
@@ -218,9 +215,7 @@ def test_L1_events_04_causal_order_across_changesets(store: Store, actor: Actor)
     assert max(a_indices) < min(b_indices)
 
 
-def test_L1_events_05_within_changeset_order_preserved(
-    store: Store, actor: Actor
-) -> None:
+def test_L1_events_05_within_changeset_order_preserved(store: Store, actor: Actor) -> None:
     """L1.events.05 — Events within a ChangeSet follow the issue order."""
     with store.begin(tag="t", actor=actor) as tx:
         n1 = tx.create(kind=KIND_CONCEPT, layer=LAYER_CONCEPT, content="first")

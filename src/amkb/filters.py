@@ -25,7 +25,8 @@ evaluator only for post-filtering.
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Union
+from collections.abc import Mapping
+from typing import Any
 
 import msgspec
 
@@ -62,22 +63,22 @@ class Range(msgspec.Struct, frozen=True, tag="range"):
 class And(msgspec.Struct, frozen=True, tag="and"):
     """Conjunction: every sub-filter MUST match."""
 
-    filters: tuple["Filter", ...]
+    filters: tuple[Filter, ...]
 
 
 class Or(msgspec.Struct, frozen=True, tag="or"):
     """Disjunction: at least one sub-filter MUST match."""
 
-    filters: tuple["Filter", ...]
+    filters: tuple[Filter, ...]
 
 
 class Not(msgspec.Struct, frozen=True, tag="not"):
     """Negation: the sub-filter MUST NOT match."""
 
-    filter: "Filter"
+    filter: Filter
 
 
-Filter = Union[Eq, In, Range, And, Or, Not]
+Filter = Eq | In | Range | And | Or | Not
 """Discriminated union of filter AST nodes. Serialized with a ``type``
 tag per ``msgspec.Struct(tag=...)``."""
 
