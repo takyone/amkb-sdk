@@ -59,6 +59,13 @@ Then, in a ``tests/test_amkb_conformance.py`` in the same tree::
     from amkb.conformance.test_l4b_intent import *       # noqa: F401,F403
 """
 
-from amkb.conformance.fixtures import actor
+try:
+    from amkb.conformance.fixtures import actor
+except ModuleNotFoundError as exc:
+    if exc.name == "pytest":
+        raise ModuleNotFoundError(
+            "amkb.conformance requires pytest. Install with `pip install amkb[test]`."
+        ) from exc
+    raise
 
 __all__ = ["actor"]

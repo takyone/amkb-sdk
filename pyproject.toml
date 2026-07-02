@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "amkb"
-version = "0.0.1"
+dynamic = ["version"]
 description = "Backend-agnostic Python SDK and conformance suite for the AMKB protocol"
 readme = "README.md"
 license = "Apache-2.0"
@@ -39,6 +39,9 @@ Specification = "https://github.com/takyone/amkb-spec"
 Repository = "https://github.com/takyone/amkb-sdk"
 Issues = "https://github.com/takyone/amkb-sdk/issues"
 Changelog = "https://github.com/takyone/amkb-sdk/blob/main/CHANGELOG.md"
+
+[tool.hatch.version]
+path = "src/amkb/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/amkb"]

@@ -19,11 +19,12 @@ This is not a production store. It is not concurrent-safe, not
 durable across process restarts, and not optimized. It is the
 smallest thing that passes the conformance suite.
 
-Durability note: Level B durability in spec §4.4.2 requires events
-to be recoverable after store restart. A dict impl cannot satisfy
-Level B; the conformance suite's durability test is therefore
-skipped for this implementation by marking the store as
-``durability_level = "A"``.
+Durability note: the ``durability_level`` ClassVar below records that
+this implementation is Level A per spec §4.4.2 (no durability
+guarantee across a store restart). No conformance test reads this
+attribute yet — the matrix's durable-across-restart check
+(L1.events.03) has no executable test in this release. It exists as
+forward-looking metadata for when that test is added.
 """
 
 from __future__ import annotations
