@@ -1,11 +1,12 @@
 # amkb — Python SDK for the Agent-Managed Knowledge Base protocol
 
-> 🚧 **Not yet usable.** This `0.0.x` release exists only to reserve
-> the name on PyPI while the protocol settles. The first usable
-> release will be `0.1.0`, gated on a real reference implementation
-> (Spikuit adapter) passing the full conformance suite. Until then,
-> the public API may change without notice and there is no install
-> story worth recommending. Track progress at
+> 🚧 **Not yet released as `0.1.0`.** This `0.0.x` version exists to
+> reserve the name on PyPI while the protocol settles. The reference
+> implementation (Spikuit's `amkb.Store` adapter) already passes
+> L1/L2/L4a/L4b with the skips documented in "Relationship to
+> Spikuit" below — the release gate for `0.1.0` is met; what remains
+> is this repo's own packaging/CI process. Until `0.1.0` ships, the
+> public API may change without notice. Track progress at
 > [amkb-spec](https://github.com/takyone/amkb-spec) and
 > [amkb-sdk](https://github.com/takyone/amkb-sdk).
 
@@ -42,18 +43,35 @@ graph and is the first real consumer of `amkb`. Spikuit features
 such as FSRS scheduling, APPNP propagation, and pressure dynamics live
 on top of the AMKB protocol, not inside it.
 
-**Status (2026-04):** Spikuit **v0.7.0** ships the `spikuit-core`
-plumbing needed to back an adapter — soft-retire as the sole delete
-path, a `changeset` / `event` log, an `async with circuit.transaction()`
-wrapper, `neuron_predecessor` lineage, and a physical-purge escape
-hatch via `spkt history prune`. The hot read/write paths stayed
-byte-identical: 408 pre-existing tests pass unchanged, and the
-spaced-repetition `fire()` path was deliberately kept off the event
-log (+0.18% overhead in benchmark). The adapter module
-(`spikuit_agents.amkb`) that surfaces these as an `amkb.Store` is
-targeted at Spikuit v0.7.1 and will be gated on the full conformance
-suite passing. At that point, `amkb==0.1.0` can ship with Spikuit as
-its reference implementation.
+**Status:** Spikuit **v0.9.0** ships an `amkb.Store` adapter
+(`spikuit_agents/src/spikuit_agents/amkb/`) backed by its
+`spikuit-core` Circuit/Brain plumbing. Running the star-import
+conformance wrapper (`spikuit-agents/tests/test_amkb_conformance.py`)
+against it passes **31 tests with 12 documented skips and zero
+failures**:
+
+- **L1 (Core), L4a (Structural), L4b (Intent)** pass in full except
+  for the gaps below.
+- **L2 (Lineage)** passes except `test_L2_merge_02_kind_mismatch_rejected`
+  (`KIND_CATEGORY` is not yet a Spikuit kind).
+- **L3 (Transactional)** is entirely skipped: Spikuit's Circuit
+  forbids nested/concurrent transactions and has no `revert()` yet;
+  MVCC and revert are on the adapter's roadmap.
+- Two L4a tests (`neighbors_04`, `walk_02`) skip because
+  `REL_DERIVED_FROM` / `REL_ATTESTED_BY` have no `SynapseType`
+  counterpart in Spikuit.
+- One L4b test (`retrieve_03`) skips because Spikuit only exposes
+  `type`/`domain`/`source` as queryable attrs, not free-form filters;
+  another (`retrieve_02`) skips because the fixture happens to
+  produce fewer than two scored hits against Spikuit's ISF — the
+  shared conformance test itself treats that as trivially true rather
+  than a capability gap.
+
+This is the release gate for `amkb` 0.1.0: it ships once the
+reference implementation passes L1/L2/L4a/L4b with only documented
+skips, which is already the current state above. There is no
+additional gate — the remaining work to ship 0.1.0 lives in this
+repo (packaging, CI, docs), not in the reference implementation.
 
 ## Install
 
@@ -156,6 +174,34 @@ def test_L2_rewrite_01_updated_at_advances(store, actor):  # noqa: F811
 An implementation is **conformant at level X** when every test at
 level X passes, with no skips other than capability-gated ones for
 capabilities it does not claim.
+
+## Development
+
+This repo's own baseline — unit tests plus the conformance suite run
+against the in-tree `DictStore` — requires an **editable install**:
+a non-editable install collides with the `src/` layout
+(`ImportPathMismatchError`). A bare `pytest` invocation only collects
+`tests/` (`testpaths = ["tests"]` in `pyproject.toml`) — 36 unit
+tests, not the full baseline. Run both paths explicitly:
+
+```sh
+uv run --no-project --with pytest --with pytest-cov --with msgspec --with-editable . \
+  python -m pytest tests src/amkb/conformance -q
+```
+
+Lint and type-check:
+
+```sh
+uv run --no-project --with ruff ruff check .
+uv run --no-project --with ruff ruff format --check .
+uv run --no-project --with mypy --with msgspec --with pytest --with-editable . mypy
+```
+
+The `mypy` invocation needs `--with pytest` alongside `--with-editable .`:
+`packages = ["amkb"]` in `[tool.mypy]` checks the installed package,
+and `amkb.conformance`'s submodules import pytest, so mypy needs it
+resolvable in the same environment even though nothing in `amkb`
+itself depends on it at runtime.
 
 ## License
 
